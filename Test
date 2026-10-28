@@ -1,0 +1,289 @@
+-- Load Fluent UI Library
+local success, Fluent = pcall(function()
+   return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+end)
+
+if not success or not Fluent then
+   warn("Failed to load Fluent UI Library. Check your internet connection or executor http support.")
+   return
+end
+
+-- Create Window (MinimizeKey set to nil to prevent annoying popups)
+local Window = Fluent:CreateWindow({
+    Title = "The GSSAB Test",
+    SubTitle = "Universal Hub",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = false,
+    Theme = "Dark",
+    MinimizeKey = nil
+})
+
+-- Create Sidebar Tabs
+local Tabs = {
+    Movement = Window:AddTab({ Title = "Movement", Icon = "move" }),
+    Misc = Window:AddTab({ Title = "Misc / Toggles", Icon = "settings" })
+}
+
+-- Services & Variables
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+Player.CharacterAdded:Connect(function(newChar)
+    Character = newChar
+    Humanoid = newChar:WaitForChild("Humanoid")
+    RootPart = newChar:WaitForChild("HumanoidRootPart")
+end)
+
+--- ==================== DRAGGABLE REOPEN BUTTON ON THE LEFT ==================== ---
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "GSSAB_ReopenGui"
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = Player.PlayerGui end
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ReopenButton"
+ToggleButton.Parent = ScreenGui
+ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleButton.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ToggleButton.Position = UDim2.new(0.02, 0, 0.25, 0) -- Positioned on the left side
+ToggleButton.Size = UDim2.new(0, 110, 0, 40)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Text = "Open UI"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextSize = 14
+ToggleButton.Visible = false -- Hidden by default while menu is open
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = ToggleButton
+
+-- Make the reopen button draggable
+local dragging, dragStart, startPos
+ToggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleButton.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+local isMinimized = false
+local function SetUIVisible(state)
+    isMinimized = not state
+    if Window.Root then
+        Window.Root.Visible = state
+    end
+    ToggleButton.Visible = not state
+end
+
+ToggleButton.MouseButton1Click:Connect(function()
+    SetUIVisible(true)
+end)
+
+-- Auto-detects when you click the [-] minimize button on the window top-right
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if Window and Window.Root then
+            if not Window.Root.Visible and not isMinimized then
+                SetUIVisible(false)
+            end
+        end
+    end
+end)
+
+-- Minimize Button inside Misc tab
+Tabs.Misc:AddButton({
+    Title = "Minimize Menu",
+    Description = "Hides the UI and shows the floating Open button",
+    Callback = function()
+        SetUIVisible(false)
+    end
+})
+
+
+--- ==================== MOVEMENT TAB ==================== ---
+
+Tabs.Movement:AddInput("SpeedInput", {
+    Title = "WalkSpeed",
+    Description = "",
+    Default = "16",
+    Placeholder = "Type speed...",
+    Numeric = true,
+    Finished = true,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num and Humanoid then
+            Humanoid.WalkSpeed = num
+        end
+    end
+})
+
+local InfJumpEnabled = false
+UserInputService.JumpRequest:Connect(function()
+    if InfJumpEnabled then
+        if Humanoid then
+            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+local InfJumpToggle = Tabs.Movement:AddToggle("InfJumpToggle", {
+    Title = "Infinite Jump",
+    Default = false
+})
+
+InfJumpToggle:OnChanged(function()
+    InfJumpEnabled = InfJumpToggle.Value
+end)
+
+local Flying = false
+local FlySpeed = 50
+local FlyConnection
+
+local function StartFly()
+    if not Character or not RootPart or not Humanoid then return end
+    
+    Humanoid.PlatformStand = true
+
+    local BodyVel = Instance.new("BodyVelocity")
+    BodyVel.Name = "FluentFlyVel"
+    BodyVel.Parent = RootPart
+    BodyVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BodyVel.Velocity = Vector3.new(0, 0, 0)
+
+    local BodyGyro = Instance.new("BodyGyro")
+    BodyGyro.Name = "FluentFlyGyro"
+    BodyGyro.Parent = RootPart
+    BodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    BodyGyro.CFrame = RootPart.CFrame
+
+    FlyConnection = RunService.RenderStepped:Connect(function()
+        if not Flying or not Character or not RootPart.Parent then
+            if BodyVel then BodyVel:Destroy() end
+            if BodyGyro then BodyGyro:Destroy() end
+            if Humanoid then Humanoid.PlatformStand = false end
+            if FlyConnection then FlyConnection:Disconnect() end
+            return
+        end
+
+        BodyGyro.CFrame = Camera.CFrame
+        
+        local moveDir = Humanoid.MoveDirection
+        local velocity = Vector3.new(0, 0, 0)
+        
+        if moveDir.Magnitude > 0 then
+            local camSpace = Camera.CFrame:VectorToObjectSpace(moveDir)
+            velocity = (Camera.CFrame.LookVector * -camSpace.Z) + (Camera.CFrame.RightVector * camSpace.X)
+        end
+        
+        BodyVel.Velocity = velocity * FlySpeed
+    end)
+end
+
+local FlyToggle = Tabs.Movement:AddToggle("FlyToggle", {
+    Title = "Enable Flight",
+    Default = false
+})
+
+FlyToggle:OnChanged(function()
+    Flying = FlyToggle.Value
+    if Flying then
+        StartFly()
+    else
+        if RootPart then
+            if RootPart:FindFirstChild("FluentFlyVel") then RootPart.FluentFlyVel:Destroy() end
+            if RootPart:FindFirstChild("FluentFlyGyro") then RootPart.FluentFlyGyro:Destroy() end
+        end
+        if Humanoid then
+            Humanoid.PlatformStand = false
+        end
+        if FlyConnection then
+            FlyConnection:Disconnect()
+        end
+    end
+end)
+
+Tabs.Movement:AddInput("FlySpeedInput", {
+    Title = "Flight Speed",
+    Description = "",
+    Default = "50",
+    Placeholder = "Type fly speed...",
+    Numeric = true,
+    Finished = true,
+    Callback = function(Value)
+        local num = tonumber(Value)
+        if num then
+            FlySpeed = num
+        end
+    end
+})
+
+
+--- ==================== MISC TAB ==================== ---
+
+local NoclipEnabled = false
+local NoclipConnection
+
+local NoclipToggle = Tabs.Misc:AddToggle("NoclipToggle", {
+    Title = "Noclip (Walk Through Walls)",
+    Default = false
+})
+
+NoclipToggle:OnChanged(function()
+    NoclipEnabled = NoclipToggle.Value
+    
+    if NoclipEnabled then
+        NoclipConnection = RunService.Stepped:Connect(function()
+            if NoclipEnabled and Character then
+                for _, part in ipairs(Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if NoclipConnection then
+            NoclipConnection:Disconnect()
+            NoclipConnection = nil
+        end
+        if Character then
+            for _, part in ipairs(Character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end)
+
+Tabs.Misc:AddParagraph({
+    Title = "Information",
+    Content = "Click the [-] button on the top right or the Minimize button above to hide the UI. The draggable 'Open UI' button will appear on the left!"
+})
+
+Window:SelectTab(1)
